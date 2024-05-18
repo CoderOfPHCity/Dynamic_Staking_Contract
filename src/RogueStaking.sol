@@ -4,9 +4,7 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
- import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-//import "@chainlink-brownie-contracts/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
-//import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 contract RogueStaking is ReentrancyGuard, Ownable {
     IERC20 public immutable stakingToken;
@@ -25,6 +23,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         uint256 apy;
         uint256 endTime;
     }
+
     struct LeaderboardEntry {
         address user;
         uint256 combinedBalance;
@@ -38,11 +37,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
 
     event Withdraw(address indexed user, uint256 amount);
     event Stake(address indexed user, uint256 amount);
-    event PenaltyPaid(
-        address indexed user,
-        uint256 penaltyAmount,
-        address penaltyWallet
-    );
+    event PenaltyPaid(address indexed user, uint256 penaltyAmount, address penaltyWallet);
 
     constructor(
         address initialOwner,
@@ -58,7 +53,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
     }
 
     function getLatestPrice() public view returns (int256) {
-        (, int256 price, , , ) = priceFeed.latestRoundData();
+        (, int256 price,,,) = priceFeed.latestRoundData();
         return price;
     }
 
@@ -71,8 +66,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
 
         // Get the latest token price in USD
         int256 price = getLatestPrice();
-        uint256 valueInDollars = (remainingBalance * uint256(price)) /
-            (10**priceFeed.decimals());
+        uint256 valueInDollars = (remainingBalance * uint256(price)) / (10 ** priceFeed.decimals());
 
         // Check if the remaining balance value is less than the minimum dollar value
         if (valueInDollars < MIN_DOLLAR_VALUE) {
@@ -81,9 +75,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
 
         uint256 penaltyAmount = 0;
         if (block.timestamp < stakeInfo.startTime + stakeInfo.lockupPeriod) {
-            penaltyAmount =
-                (amount * getPenaltyRate(stakeInfo.lockupPeriod)) /
-                100;
+            penaltyAmount = (amount * getPenaltyRate(stakeInfo.lockupPeriod)) / 100;
             uint256 daoAmount = (penaltyAmount * daoSplit) / 100;
             uint256 penaltyWalletAmount = penaltyAmount - daoAmount;
             stakingToken.transfer(daoWallet, daoAmount);
@@ -104,10 +96,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         uint256 combinedBalance = walletBalance + stakedAmount;
 
         // Update leaderboard entry
-        leaderboard[user] = LeaderboardEntry({
-            user: user,
-            combinedBalance: combinedBalance
-        });
+        leaderboard[user] = LeaderboardEntry({user: user, combinedBalance: combinedBalance});
 
         bool userExists = false;
         for (uint256 i = 0; i < users.length; i++) {
@@ -125,9 +114,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
     }
 
     function updateRankings() private {
-        LeaderboardEntry[] memory entries = new LeaderboardEntry[](
-            users.length
-        );
+        LeaderboardEntry[] memory entries = new LeaderboardEntry[](users.length);
 
         for (uint256 i = 0; i < users.length; i++) {
             entries[i] = leaderboard[users[i]];
@@ -155,11 +142,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         }
     }
 
-    function stake(
-        uint256 amount,
-        uint256 lockupPeriod,
-        uint256 apy
-    ) external nonReentrant {
+    function stake(uint256 amount, uint256 lockupPeriod, uint256 apy) external nonReentrant {
         require(amount > 0, "Cannot stake 0");
         require(lockupPeriod >= MIN_LOCKUP_PERIOD, "Lockup period too short");
 
@@ -168,14 +151,10 @@ contract RogueStaking is ReentrancyGuard, Ownable {
 
         // Get the latest token price in USD
         int256 price = getLatestPrice();
-        uint256 valueInDollars = (newBalance * uint256(price)) /
-            (10**priceFeed.decimals());
+        uint256 valueInDollars = (newBalance * uint256(price)) / (10 ** priceFeed.decimals());
 
         // Allow staking if the new balance value is greater than or equal to the minimum dollar value
-        require(
-            valueInDollars >= MIN_DOLLAR_VALUE,
-            "New balance is below the minimum threshold"
-        );
+        require(valueInDollars >= MIN_DOLLAR_VALUE, "New balance is below the minimum threshold");
 
         stakingToken.transferFrom(msg.sender, address(this), amount);
         stakes[msg.sender] = StakeInfo({
@@ -190,11 +169,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         emit Stake(msg.sender, amount);
     }
 
-    function getPenaltyRate(uint256 lockupPeriod)
-        internal
-        pure
-        returns (uint256)
-    {
+    function getPenaltyRate(uint256 lockupPeriod) internal pure returns (uint256) {
         if (lockupPeriod == 10 days) return 2;
         if (lockupPeriod == 20 days) return 3;
         if (lockupPeriod == 30 days) return 5;
@@ -219,13 +194,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
     function getStakingDetails(address user)
         external
         view
-        returns (
-            uint256 amount,
-            uint256 startTime,
-            uint256 endTime,
-            uint256 timeLeft,
-            uint256 apy
-        )
+        returns (uint256 amount, uint256 startTime, uint256 endTime, uint256 timeLeft, uint256 apy)
     {
         StakeInfo storage stakeInfo = stakes[user];
         amount = stakeInfo.amount;
@@ -242,17 +211,13 @@ contract RogueStaking is ReentrancyGuard, Ownable {
     function getLeaderboardEntry(address user)
         external
         view
-        returns (uint256 combinedBalance)
+        returns (uint256 stakedAmount, uint256 walletBalance, uint256 combinedBalance)
     {
         LeaderboardEntry storage entry = leaderboard[user];
-        return (entry.combinedBalance);
+        return (stakes[user].amount, stakingToken.balanceOf(user), entry.combinedBalance);
     }
 
-    function getTopStakers(uint256 count)
-        external
-        view
-        returns (address[] memory, uint256[] memory)
-    {
+    function getTopStakers(uint256 count) external view returns (address[] memory, uint256[] memory) {
         address[] memory addresses = new address[](count);
         uint256[] memory combinedBalances = new uint256[](count);
 
