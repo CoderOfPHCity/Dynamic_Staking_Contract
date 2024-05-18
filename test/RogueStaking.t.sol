@@ -12,8 +12,8 @@ contract CounterTest is Test {
 
      IERC20 rougueERC;
 
-    address initialOwner = 0x107Ff7900F4dA6BFa4eB41dBD6f2953ffb41b2B1;
-    address rougueToken = address(0xb);
+    address initialOwner = 0xd1B99D610E0B540045a7FEa744551973329996d6;
+    address rougueToken = 0xa3bb956C5F8Ce6Fb8386e0EBBE82Cba12bBe6EBD;
     address dai_usd = 0x14866185B1962B63C3Ea9E03Bc1da838bab34C19;
     address daoWallet = 0x107Ff7900F4dA6BFa4eB41dBD6f2953ffb41b2B1;
     address penaltyAddress = address(0);
@@ -43,16 +43,16 @@ contract CounterTest is Test {
     }
 
     function teststake() public {
-       switchSigner(A);
-        uint256 amount = 1 ether;
+       switchSigner(initialOwner);
+        uint256 amount = 10000000;
         uint256 lockupPeriod = 5 days;
         uint256 apy = 1;
-              uint256 balanceBefore = mockERC20.balanceOf(A);
-              mockERC20.approve(address(rogueStaking), amount);
+              uint256 balanceBefore = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
+              rougueERC.approve(address(rogueStaking), amount);
 
-        rogueStaking.stake(amount, lockupPeriod, apy);
-             uint256 balanceAfter = mockERC20.balanceOf(A);
-         assertEq(balanceAfter, balanceBefore);
+        rogueStaking.stake(100, lockupPeriod, apy);
+             uint256 balanceAfter = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
+         assertGt(balanceBefore, balanceAfter);
     }
 
     function mkaddr(string memory name) public returns (address) {
@@ -70,4 +70,6 @@ contract CounterTest is Test {
             vm.startPrank(_newSigner);
         }
     }
+
+    //forge test --rpc-url https://eth-sepolia.g.alchemy.com/v2/bHwDnavMydGw59bzw1Btshdvhgex3Vb6 --evm-version cancun -vvvvv
 }

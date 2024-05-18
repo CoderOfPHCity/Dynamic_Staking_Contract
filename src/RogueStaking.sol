@@ -155,7 +155,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
 
         // Allow staking if the new balance value is greater than or equal to the minimum dollar value
         require(valueInDollars >= MIN_DOLLAR_VALUE, "New balance is below the minimum threshold");
-
+        require(stakingToken.allowance(msg.sender, address(this)) >= amount, "Allowance not enough");
         stakingToken.transferFrom(msg.sender, address(this), amount);
         stakes[msg.sender] = StakeInfo({
             amount: newBalance,
