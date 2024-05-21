@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "../src/Interface/IDAGToken.sol";
+import "../src/Interface/IDAGOracle.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+// import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "../src/Library/SafeDAGToken.sol";
 
 contract RogueStaking is ReentrancyGuard, Ownable {
-    IERC20 public immutable stakingToken;
-    AggregatorV3Interface public immutable priceFeed;
+    using SafeDAGToken for IDAGToken;
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    IDAGToken public immutable stakingToken;
+    IDAGOracle public immutable priceFeed;
     uint256 public constant MIN_DOLLAR_VALUE = 100; // $0.01 (adjust decimals as necessary)
-    uint256 public constant MIN_LOCKUP_PERIOD = 5 days;
+    uint8 public constant MAX_APY = 100; // Example max APY, adjust as necessary
 
     address public daoWallet;
     address public penaltyWallet;
@@ -29,15 +35,45 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         uint256 combinedBalance;
     }
 
-    mapping(address => StakeInfo) public stakes;
+    struct StakingOption {
+        uint256 apy;
+        uint256 lockupPeriod;
+        uint256 penalty;
+    }
+
+    mapping(address => StakeInfo[]) public stakes;
     mapping(address => uint256) public rewards;
     mapping(address => LeaderboardEntry) public leaderboard;
+    EnumerableSet.AddressSet private users;
     LeaderboardEntry[] public topStakers;
-    address[] public users;
+
+    StakingOption[] public stakingOptions;
 
     event Withdraw(address indexed user, uint256 amount);
-    event Stake(address indexed user, uint256 amount);
+    event Stake(address indexed user, uint256 amount, uint256 lockupPeriod, uint256 apy);
     event PenaltyPaid(address indexed user, uint256 penaltyAmount, address penaltyWallet);
+    event DaoWalletUpdated(address indexed oldDaoWallet, address indexed newDaoWallet);
+    event PenaltyWalletUpdated(address indexed oldPenaltyWallet, address indexed newPenaltyWallet);
+    event DaoSplitUpdated(uint8 oldDaoSplit, uint8 newDaoSplit);
+    event StakingOptionAdded(uint256 apy, uint256 lockupPeriod, uint256 penalty);
+    event StakingOptionUpdated(uint256 index, uint256 apy, uint256 lockupPeriod, uint256 penalty);
+
+    event NFTListed(
+        uint256 indexed nftId,
+        address indexed seller,
+        address nftContract,
+        uint256 tokenId,
+        uint256 price,
+        uint256 royalty
+    );
+    event NFTBought(
+        uint256 indexed nftId,
+        address indexed buyer,
+        address nftContract,
+        uint256 tokenId,
+        uint256 price,
+        uint256 royalty
+    );
 
     constructor(
         address initialOwner,
@@ -46,45 +82,51 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         address _daoWallet,
         address _penaltyWallet
     ) Ownable(initialOwner) {
-        stakingToken = IERC20(_stakingToken);
-        priceFeed = AggregatorV3Interface(_priceFeed);
+        stakingToken = IDAGToken(_stakingToken);
+        priceFeed = IDAGOracle(_priceFeed);
         daoWallet = _daoWallet;
         penaltyWallet = _penaltyWallet;
+
+        // Initialize staking options based on the provided table
+        stakingOptions.push(StakingOption(10, 5 days, 1));
+        stakingOptions.push(StakingOption(20, 10 days, 2));
+        stakingOptions.push(StakingOption(30, 20 days, 3));
+        stakingOptions.push(StakingOption(50, 30 days, 5));
     }
 
     function getLatestPrice() public view returns (int256) {
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        int256 price = priceFeed.getLatestPrice();
+        require(price > 0, "Invalid price feed data");
         return price;
     }
 
-    function withdraw(uint256 amount) external nonReentrant {
-        StakeInfo storage stakeInfo = stakes[msg.sender];
+    function withdraw(uint256 stakeIndex, uint256 amount) public nonReentrant {
+        StakeInfo storage stakeInfo = stakes[msg.sender][stakeIndex];
         uint256 userBalance = stakeInfo.amount;
         require(userBalance >= amount, "Insufficient balance");
 
         uint256 remainingBalance = userBalance - amount;
 
-        // Get the latest token price in USD
         int256 price = getLatestPrice();
         uint256 valueInDollars = (remainingBalance * uint256(price)) / (10 ** priceFeed.decimals());
 
-        // Check if the remaining balance value is less than the minimum dollar value
-        if (valueInDollars < MIN_DOLLAR_VALUE) {
+        if (valueInDollars < MIN_DOLLAR_VALUE && block.timestamp < stakeInfo.endTime) {
+            require(remainingBalance == 0, "Cannot withdraw below minimum dollar value during lockup period");
             amount = userBalance; // Withdraw the entire balance
         }
 
         uint256 penaltyAmount = 0;
-        if (block.timestamp < stakeInfo.startTime + stakeInfo.lockupPeriod) {
+        if (block.timestamp < stakeInfo.endTime) {
             penaltyAmount = (amount * getPenaltyRate(stakeInfo.lockupPeriod)) / 100;
             uint256 daoAmount = (penaltyAmount * daoSplit) / 100;
             uint256 penaltyWalletAmount = penaltyAmount - daoAmount;
-            stakingToken.transfer(daoWallet, daoAmount);
-            stakingToken.transfer(penaltyWallet, penaltyWalletAmount);
+            stakingToken.safeTransfer(daoWallet, daoAmount);
+            stakingToken.safeTransfer(penaltyWallet, penaltyWalletAmount);
             emit PenaltyPaid(msg.sender, penaltyAmount, penaltyWallet);
         }
 
         stakeInfo.amount -= amount;
-        stakingToken.transfer(msg.sender, amount - penaltyAmount);
+        stakingToken.safeTransfer(msg.sender, amount - penaltyAmount);
         updateLeaderboard(msg.sender);
 
         emit Withdraw(msg.sender, amount - penaltyAmount);
@@ -92,35 +134,27 @@ contract RogueStaking is ReentrancyGuard, Ownable {
 
     function updateLeaderboard(address user) internal {
         uint256 walletBalance = stakingToken.balanceOf(user);
-        uint256 stakedAmount = stakes[user].amount;
+        uint256 stakedAmount = getTotalStakedAmount(user);
         uint256 combinedBalance = walletBalance + stakedAmount;
 
-        // Update leaderboard entry
         leaderboard[user] = LeaderboardEntry({user: user, combinedBalance: combinedBalance});
 
-        bool userExists = false;
-        for (uint256 i = 0; i < users.length; i++) {
-            if (users[i] == user) {
-                userExists = true;
-                break;
-            }
-        }
-
-        if (!userExists) {
-            users.push(user);
+        if (!users.contains(user)) {
+            users.add(user);
         }
 
         updateRankings();
     }
 
     function updateRankings() private {
-        LeaderboardEntry[] memory entries = new LeaderboardEntry[](users.length);
+        LeaderboardEntry[] memory entries = new LeaderboardEntry[](users.length());
 
-        for (uint256 i = 0; i < users.length; i++) {
-            entries[i] = leaderboard[users[i]];
+        for (uint256 i = 0; i < users.length(); i++) {
+            entries[i] = leaderboard[users.at(i)];
         }
 
-        sort(entries);
+        // Using a more efficient sorting algorithm
+        quickSort(entries, 0, entries.length - 1);
 
         delete topStakers;
 
@@ -129,83 +163,129 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         }
     }
 
-    function sort(LeaderboardEntry[] memory entries) private pure {
-        uint256 length = entries.length;
-        for (uint256 i = 0; i < length; i++) {
-            for (uint256 j = i + 1; j < length; j++) {
-                if (entries[i].combinedBalance < entries[j].combinedBalance) {
-                    LeaderboardEntry memory temp = entries[i];
-                    entries[i] = entries[j];
-                    entries[j] = temp;
-                }
+    function quickSort(LeaderboardEntry[] memory arr, uint256 left, uint256 right) private pure {
+        uint256 i = left;
+        uint256 j = right;
+        if (i == j) return;
+        LeaderboardEntry memory pivot = arr[left + (right - left) / 2];
+        while (i <= j) {
+            while (arr[i].combinedBalance > pivot.combinedBalance) i++;
+            while (pivot.combinedBalance > arr[j].combinedBalance) j--;
+            if (i <= j) {
+                (arr[i], arr[j]) = (arr[j], arr[i]);
+                i++;
+                j--;
             }
         }
+        if (left < j) quickSort(arr, left, j);
+        if (i < right) quickSort(arr, i, right);
     }
 
-    function stake(uint256 amount, uint256 lockupPeriod, uint256 apy) external nonReentrant {
+    function stake(uint256 amount, uint256 stakingOptionIndex) public nonReentrant {
         require(amount > 0, "Cannot stake 0");
-        require(lockupPeriod >= MIN_LOCKUP_PERIOD, "Lockup period too short");
+        require(stakingOptionIndex < stakingOptions.length, "Invalid staking option");
 
-        uint256 userBalance = stakes[msg.sender].amount;
+        StakingOption memory option = stakingOptions[stakingOptionIndex];
+        uint256 lockupPeriod = option.lockupPeriod;
+        uint256 apy = option.apy;
+
+        uint256 userBalance = getTotalStakedAmount(msg.sender);
         uint256 newBalance = userBalance + amount;
 
-        // Get the latest token price in USD
         int256 price = getLatestPrice();
         uint256 valueInDollars = (newBalance * uint256(price)) / (10 ** priceFeed.decimals());
 
-        // Allow staking if the new balance value is greater than or equal to the minimum dollar value
         require(valueInDollars >= MIN_DOLLAR_VALUE, "New balance is below the minimum threshold");
         require(stakingToken.allowance(msg.sender, address(this)) >= amount, "Allowance not enough");
-        stakingToken.transferFrom(msg.sender, address(this), amount);
-        stakes[msg.sender] = StakeInfo({
-            amount: newBalance,
-            startTime: block.timestamp,
-            lockupPeriod: lockupPeriod,
-            endTime: block.timestamp + lockupPeriod,
-            apy: apy
-        });
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+        stakes[msg.sender].push(
+            StakeInfo({
+                amount: newBalance,
+                startTime: block.timestamp,
+                lockupPeriod: lockupPeriod,
+                endTime: block.timestamp + lockupPeriod,
+                apy: apy
+            })
+        );
         updateLeaderboard(msg.sender);
 
-        emit Stake(msg.sender, amount);
+        emit Stake(msg.sender, amount, lockupPeriod, apy);
     }
 
-    function getPenaltyRate(uint256 lockupPeriod) internal pure returns (uint256) {
-        if (lockupPeriod == 10 days) return 2;
-        if (lockupPeriod == 20 days) return 3;
-        if (lockupPeriod == 30 days) return 5;
-        return 1; // Default penalty for 5 days lockup period
+    function getTotalStakedAmount(address user) public view returns (uint256) {
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < stakes[user].length; i++) {
+            totalAmount += stakes[user][i].amount;
+        }
+        return totalAmount;
     }
 
-    // Function to set the DAO wallet (if needed)
+    function getPenaltyRate(uint256 lockupPeriod) internal view returns (uint256) {
+        for (uint256 i = 0; i < stakingOptions.length; i++) {
+            if (stakingOptions[i].lockupPeriod == lockupPeriod) {
+                return stakingOptions[i].penalty;
+            }
+        }
+        return 1; // Default penalty for unspecified lockup period
+    }
+
+    function addStakingOption(uint256 apy, uint256 lockupPeriod, uint256 penalty) external onlyOwner {
+        require(apy > 0 && apy <= MAX_APY, "Invalid APY");
+        require(penalty <= 100, "Invalid penalty");
+        stakingOptions.push(StakingOption(apy, lockupPeriod, penalty));
+        emit StakingOptionAdded(apy, lockupPeriod, penalty);
+    }
+
+    function updateStakingOption(uint256 index, uint256 apy, uint256 lockupPeriod, uint256 penalty)
+        external
+        onlyOwner
+    {
+        require(index < stakingOptions.length, "Invalid index");
+        require(apy > 0 && apy <= MAX_APY, "Invalid APY");
+        require(penalty <= 100, "Invalid penalty");
+        stakingOptions[index] = StakingOption(apy, lockupPeriod, penalty);
+        emit StakingOptionUpdated(index, apy, lockupPeriod, penalty);
+    }
+
     function setDaoWallet(address _daoWallet) external onlyOwner {
+        emit DaoWalletUpdated(daoWallet, _daoWallet);
         daoWallet = _daoWallet;
     }
 
-    // Function to set the penalty wallet (if needed)
     function setPenaltyWallet(address _penaltyWallet) external onlyOwner {
+        emit PenaltyWalletUpdated(penaltyWallet, _penaltyWallet);
         penaltyWallet = _penaltyWallet;
     }
 
-    // Function to set the DAO split (if needed)
-    function setDaoSplit(uint8 _daoSplit) external view onlyOwner {
+    function setDaoSplit(uint8 _daoSplit) external onlyOwner {
         require(_daoSplit <= 100, "Invalid DAO split");
+        emit DaoSplitUpdated(daoSplit, _daoSplit);
+        daoSplit = _daoSplit;
     }
 
     function getStakingDetails(address user)
         external
         view
-        returns (uint256 amount, uint256 startTime, uint256 endTime, uint256 timeLeft, uint256 apy)
+        returns (
+            uint256[] memory amounts,
+            uint256[] memory startTimes,
+            uint256[] memory endTimes,
+            uint256[] memory apys
+        )
     {
-        StakeInfo storage stakeInfo = stakes[user];
-        amount = stakeInfo.amount;
-        startTime = stakeInfo.startTime;
-        endTime = stakeInfo.endTime;
-        if (block.timestamp >= endTime) {
-            timeLeft = 0;
-        } else {
-            timeLeft = endTime - block.timestamp;
+        uint256 stakesCount = stakes[user].length;
+        amounts = new uint256[](stakesCount);
+        startTimes = new uint256[](stakesCount);
+        endTimes = new uint256[](stakesCount);
+        apys = new uint256[](stakesCount);
+
+        for (uint256 i = 0; i < stakesCount; i++) {
+            StakeInfo storage stakeInfo = stakes[user][i];
+            amounts[i] = stakeInfo.amount;
+            startTimes[i] = stakeInfo.startTime;
+            endTimes[i] = stakeInfo.endTime;
+            apys[i] = stakeInfo.apy;
         }
-        apy = stakeInfo.apy;
     }
 
     function getLeaderboardEntry(address user)
@@ -214,7 +294,7 @@ contract RogueStaking is ReentrancyGuard, Ownable {
         returns (uint256 stakedAmount, uint256 walletBalance, uint256 combinedBalance)
     {
         LeaderboardEntry storage entry = leaderboard[user];
-        return (stakes[user].amount, stakingToken.balanceOf(user), entry.combinedBalance);
+        return (getTotalStakedAmount(user), stakingToken.balanceOf(user), entry.combinedBalance);
     }
 
     function getTopStakers(uint256 count) external view returns (address[] memory, uint256[] memory) {

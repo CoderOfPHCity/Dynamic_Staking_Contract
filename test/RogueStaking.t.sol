@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.19;
 
 import {Test, console} from "forge-std/Test.sol";
 import {RogueStaking} from "../src/RogueStaking.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "../src/MockRouguetoken.sol";
+import "../src/MockDAGoracle.sol";
+import "../src/MockDAGtoken.sol";
 
 contract CounterTest is Test {
     RogueStaking public rogueStaking;
-    MockERC20 mockERC20;
+    MockDAGoracle public mockDAGoracle;
+    MockDAGtoken mockDAGtoken;
 
-     IERC20 rougueERC;
+    IERC20 rougueERC;
 
     address initialOwner = 0xd1B99D610E0B540045a7FEa744551973329996d6;
     address rougueToken = 0xa3bb956C5F8Ce6Fb8386e0EBBE82Cba12bBe6EBD;
@@ -21,38 +23,49 @@ contract CounterTest is Test {
     address A = address(0xA);
 
     function setUp() public {
-         A = mkaddr("signer A");
-        rogueStaking = new RogueStaking(
-            initialOwner, 
-            rougueToken, 
-            dai_usd, 
-            daoWallet, 
-            penaltyAddress);
+        //  vm.createSelectFork("https://eth-sepolia.g.alchemy.com/v2/bHwDnavMydGw59bzw1Btshdvhgex3Vb6");
+        A = mkaddr("signer A");
+        mockDAGtoken = new MockDAGtoken(1000000000000);
+        mockDAGoracle = new MockDAGoracle(1, 1);
+        rogueStaking =
+            new RogueStaking(initialOwner, address(mockDAGtoken), address(mockDAGoracle), daoWallet, penaltyAddress);
 
-        rougueERC = IERC20(rougueToken);
-        mockERC20 = new MockERC20(A);
+        // rougueERC = IERC20(mockDAGtoken);
     }
 
     function testMIN_LOCKUP_PERIOD() public {
-        uint256 amount = 1;
+        uint256 amount = 0;
         uint256 lockupPeriod = 1 days;
         uint256 apy = 1;
 
-        vm.expectRevert("Lockup period too short");
-        rogueStaking.stake(amount, lockupPeriod, apy);
+        vm.expectRevert("Cannot stake 0");
+        rogueStaking.stake(amount, 1);
     }
 
+    // function teststake() public {
+    //     switchSigner(initialOwner);
+    //     uint256 amount = 10000000;
+    //     uint256 lockupPeriod = 5 days;
+    //     uint256 apy = 1;
+    //     uint256 balanceBefore = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
+    //     rougueERC.approve(address(rogueStaking), amount);
+
+    //     rogueStaking.stake(100, 1);
+    //     uint256 balanceAfter = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
+    //     assertGt(balanceBefore, balanceAfter);
+    // }
+
     function teststake() public {
-       switchSigner(initialOwner);
+        switchSigner(address(this));
         uint256 amount = 10000000;
         uint256 lockupPeriod = 5 days;
         uint256 apy = 1;
-              uint256 balanceBefore = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
-              rougueERC.approve(address(rogueStaking), amount);
+        uint256 balanceBefore = mockDAGtoken.balanceOf(address(this));
+        mockDAGtoken.approve(address(rogueStaking), amount);
 
-        rogueStaking.stake(100, lockupPeriod, apy);
-             uint256 balanceAfter = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
-         assertGt(balanceBefore, balanceAfter);
+        rogueStaking.stake(10000000, 1);
+        uint256 balanceAfter = mockDAGtoken.balanceOf(address(this));
+        assertGt(balanceBefore, balanceAfter);
     }
 
     function mkaddr(string memory name) public returns (address) {
