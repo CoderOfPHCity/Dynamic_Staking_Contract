@@ -101,7 +101,9 @@ contract RogueStaking is ReentrancyGuard, Ownable {
     }
 
     function withdraw(uint256 stakeIndex, uint256 amount) public nonReentrant {
-        StakeInfo storage stakeInfo = stakes[msg.sender][stakeIndex];
+        require(stakeIndex > 0 && stakeIndex <= stakes[msg.sender].length, "Invalid stake index");
+        StakeInfo storage stakeInfo = stakes[msg.sender][stakeIndex - 1];
+
         uint256 userBalance = stakeInfo.amount;
         require(userBalance >= amount, "Insufficient balance");
 

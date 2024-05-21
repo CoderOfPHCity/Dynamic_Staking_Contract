@@ -32,7 +32,6 @@ abstract contract EnhancedRogueStaking is RogueStaking {
     {
         // Original staking logic
         stake(amount, stakingOptionIndex);
-        
 
         // Additional NFT staking logic
         uint256 nftFloorPrice = nftPriceOracle.getLatestFloorPrice(nftContract);
@@ -42,7 +41,7 @@ abstract contract EnhancedRogueStaking is RogueStaking {
         uint256 totalValueInDollars = _calculateTotalValueInDollars(nftContract, amount);
 
         require(totalValueInDollars >= MIN_DOLLAR_VALUE, "Combined value is below the minimum threshold");
-        uint256 apy = calculateAPY(amount,nftContract, nftFloorPrice, stakingOptionIndex);
+        uint256 apy = calculateAPY(amount, nftContract, nftFloorPrice, stakingOptionIndex);
         // Store NFT staking info
         stakedNFTs[msg.sender].push(NFTInfo({contractAddress: nftContract, tokenId: nftId, floorPrice: nftFloorPrice}));
 
@@ -88,22 +87,22 @@ abstract contract EnhancedRogueStaking is RogueStaking {
         return valueInDollars;
     }
 
+    function calculateAPY(uint256 stakedAmount, address nftContract, uint256 nftValue, uint256 stakingOptionIndex)
+        internal
+        view
+        returns (uint256)
+    {
+        require(stakingOptionIndex < stakingOptions.length, "Invalid staking option index");
+        StakingOption memory option = stakingOptions[stakingOptionIndex];
+        uint256 baseAPY = option.apy;
 
-function calculateAPY(uint256 stakedAmount, address nftContract, uint256 nftValue, uint256 stakingOptionIndex) internal view returns (uint256) {
-    require(stakingOptionIndex < stakingOptions.length, "Invalid staking option index");
-    StakingOption memory option = stakingOptions[stakingOptionIndex];
-    uint256 baseAPY = option.apy;
-    
-    uint256 combinedValue = stakedAmount + nftValue;
-    uint256 baseValue = nftPriceOracle.getLatestFloorPrice(nftContract);
-    uint256 additionalAPYPercentage = 1;
-    
-    // Use combinedValue to determine the APY
-    uint256 enhancedAPY = baseAPY + (additionalAPYPercentage * combinedValue / baseValue);
-    
-    return enhancedAPY;
+        uint256 combinedValue = stakedAmount + nftValue;
+        uint256 baseValue = nftPriceOracle.getLatestFloorPrice(nftContract);
+        uint256 additionalAPYPercentage = 1;
+
+        // Use combinedValue to determine the APY
+        uint256 enhancedAPY = baseAPY + (additionalAPYPercentage * combinedValue / baseValue);
+
+        return enhancedAPY;
+    }
 }
-
-
-}
-

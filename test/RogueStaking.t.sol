@@ -42,19 +42,6 @@ contract CounterTest is Test {
         rogueStaking.stake(amount, 1);
     }
 
-    // function teststake() public {
-    //     switchSigner(initialOwner);
-    //     uint256 amount = 10000000;
-    //     uint256 lockupPeriod = 5 days;
-    //     uint256 apy = 1;
-    //     uint256 balanceBefore = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
-    //     rougueERC.approve(address(rogueStaking), amount);
-
-    //     rogueStaking.stake(100, 1);
-    //     uint256 balanceAfter = rougueERC.balanceOf(0xd1B99D610E0B540045a7FEa744551973329996d6);
-    //     assertGt(balanceBefore, balanceAfter);
-    // }
-
     function teststake() public {
         switchSigner(address(this));
         uint256 amount = 10000000;
@@ -66,6 +53,49 @@ contract CounterTest is Test {
         rogueStaking.stake(10000000, 1);
         uint256 balanceAfter = mockDAGtoken.balanceOf(address(this));
         assertGt(balanceBefore, balanceAfter);
+    }
+
+    function testMultipleStakeOption() public {
+        switchSigner(address(this));
+        uint256 amount = 10000000;
+        mockDAGtoken.approve(address(rogueStaking), amount);
+        rogueStaking.stake(1000, 1);
+        rogueStaking.stake(1000, 2);
+    }
+
+    function testMultipleStakeOptionStakeAmont() public {
+        switchSigner(address(this));
+        uint256 amount = 10000000;
+        mockDAGtoken.approve(address(rogueStaking), amount);
+        rogueStaking.stake(1000, 1);
+        vm.expectRevert("Allowance not enough");
+        rogueStaking.stake(10000000, 2);
+    }
+
+    function testINVALIDSTAKEOPTION() public {
+        switchSigner(address(this));
+        uint256 amount = 10000000;
+        mockDAGtoken.approve(address(rogueStaking), amount);
+        vm.expectRevert("Invalid staking option");
+        rogueStaking.stake(10000000, 10);
+    }
+
+    function testWithdraw() public {
+        switchSigner(address(this));
+        uint256 amount = 10000000;
+        mockDAGtoken.approve(address(rogueStaking), amount);
+        rogueStaking.stake(10000000, 1);
+        rogueStaking.withdraw(1, 1);
+    }
+
+        function testWithdrawINVALIDINDEX() public {
+        switchSigner(address(this));
+        uint256 amount = 10000000;
+        mockDAGtoken.approve(address(rogueStaking), amount);
+        rogueStaking.stake(10000000, 1);
+        rogueStaking.withdraw(1, 100);
+        rogueStaking.withdraw(1, 10);
+
     }
 
     function mkaddr(string memory name) public returns (address) {
