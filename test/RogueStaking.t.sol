@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test, console, console2} from "forge-std/Test.sol";
 import {RogueStaking} from "../src/RogueStaking.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../src/MockDAGoracle.sol";
 import "../src/MockDAGtoken.sol";
+import {Governance} from "../src/Governance.sol";
+import {RogueToken} from "../src/RougeToken.sol";
+import {TimeLock} from "../src/Timelock.sol";
+import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
+import { TimelockController } from "@openzeppelin/contracts/governance/TimelockController.sol";
+import { Vm } from "forge-std/Vm.sol";
+import { IGovernor } from "@openzeppelin/contracts/governance/IGovernor.sol";
 
 contract CounterTest is Test {
     RogueStaking public rogueStaking;
@@ -13,12 +20,24 @@ contract CounterTest is Test {
     MockDAGtoken mockDAGtoken;
 
     IERC20 rougueERC;
+        Governance internal governor;
+    RogueToken internal governanceToken;
+    TimeLock internal timeLock;
+
+        uint8 internal voteWay = 1;
+    string internal reason = "we build the next gen decentralized ecosystem";
+
+uint256 internal constant MIN_DELAY = 3600;
+        uint256 internal constant NEW_STORE_VALUE = 100;
+    string internal constant FUNC_SIG = "store(uint256)";
+    string internal constant PROPOSAL_DESCRIPTION = "Proposal #1 Build on ChainFi!";
 
     address initialOwner = 0xd1B99D610E0B540045a7FEa744551973329996d6;
     address rougueToken = 0xa3bb956C5F8Ce6Fb8386e0EBBE82Cba12bBe6EBD;
     address dai_usd = 0x14866185B1962B63C3Ea9E03Bc1da838bab34C19;
     address daoWallet = 0x107Ff7900F4dA6BFa4eB41dBD6f2953ffb41b2B1;
     address penaltyAddress = address(0);
+    address deployer = msg.sender;
 
     address A = address(0xA);
 
@@ -31,6 +50,33 @@ contract CounterTest is Test {
             new RogueStaking(initialOwner, address(mockDAGtoken), address(mockDAGoracle), daoWallet, penaltyAddress);
 
         // rougueERC = IERC20(mockDAGtoken);
+         string memory name = "RougeToken";
+        string memory symbol = "RTN";
+
+        governanceToken = new RogueToken(name, symbol, 100000, deployer);
+
+        governanceToken.delegate(deployer);
+      
+        console2.log("Deploying TimeLock and waiting for confirmations...");
+
+        uint256 minDelay = MIN_DELAY;
+        address[] memory proposers;
+        address[] memory executors;
+        address admin = deployer;
+        timeLock = new TimeLock(minDelay, proposers, executors, admin);
+        IVotes token = governanceToken;
+        TimelockController timelock = timeLock;
+
+        governor = new Governance(name, timeLock, governanceToken, admin);
+
+       
+        bytes32 proposerRole = timeLock.PROPOSER_ROLE();
+        bytes32 executorRole = timeLock.EXECUTOR_ROLE();
+        bytes32 adminRole = timeLock.CANCELLER_ROLE();
+
+        // timeLock.grantRole(proposerRole, address(governor));
+        // timeLock.grantRole(executorRole, address(0));
+        //  timeLock.grantRole(adminRole, deployer);
     }
 
     function testMIN_LOCKUP_PERIOD() public {
@@ -88,15 +134,86 @@ contract CounterTest is Test {
         rogueStaking.withdraw(1, 1);
     }
 
-        function testWithdrawINVALIDINDEX() public {
+    function testMultipleWithdraw() public {
         switchSigner(address(this));
         uint256 amount = 10000000;
         mockDAGtoken.approve(address(rogueStaking), amount);
         rogueStaking.stake(10000000, 1);
         rogueStaking.withdraw(1, 100);
         rogueStaking.withdraw(1, 10);
-
     }
+    //     function test_ProposesVotesWaitsQueuesAndThenExecutes() external {
+    //     address[] memory targets = new address[](1);
+    //     uint256[] memory values = new uint256[](1);
+    //     bytes[] memory calldatas = new bytes[](1);
+
+    //     // propose
+    //     bytes memory encodedFunctionCall = abi.encodeWithSignature(FUNC_SIG, NEW_STORE_VALUE);
+
+    //     targets[0] = address(rogueStaking);
+    //     values[0] = 0;
+    //     calldatas[0] = encodedFunctionCall;
+    //     string memory description = PROPOSAL_DESCRIPTION;
+
+    //     vm.recordLogs();
+    //     governor.propose(targets, values, calldatas, description);
+
+    //     Vm.Log[] memory entries = vm.getRecordedLogs();
+
+    //     assertEq(entries.length, 1);
+     
+    //     // assertEq(
+    //     //     entries[0].topics[0],
+    //     //     keccak256(
+    //     //         "ProposalCreated(uint256,address,address[],uint256[],string[],bytes[],uint256,uint256,string)"
+    //     //     )
+    //     // );
+
+    //     Governance.ProposalState proposalState;
+    //     uint256 proposalId = abi.decode(entries[0].data, (uint256));
+    //     console2.log("entries data: ", proposalId);
+    //     proposalState = governor.state(proposalId);
+    //     console2.log("First Current Proposal State: ", uint256(proposalState));
+    //     assertEq(uint256(proposalState), 0);
+    //     assert(proposalState == IGovernor.ProposalState.Pending);
+
+    //     vm.roll(block.number + 10000);
+
+    //     // vote
+    //     governor.castVoteWithReason(proposalId, voteWay, reason);
+
+    //     proposalState = governor.state(proposalId);
+    //     console2.log("second Current Proposal State: ", uint256(proposalState));
+    //     assertEq(uint256(proposalState), 1);
+    //     assert(proposalState == IGovernor.ProposalState.Active);
+
+    //     vm.roll(block.number + 100000);
+
+    //     // queue & execute
+    //     bytes32 descriptionHash = keccak256(bytes(PROPOSAL_DESCRIPTION));
+
+    //     targets[0] = address(rogueStaking);
+    //     values[0] = 0;
+    //     calldatas[0] = encodedFunctionCall;
+
+    //     governor.queue(targets, values, calldatas, descriptionHash);
+
+    //     vm.warp(block.timestamp  + 1);
+    //     vm.roll(block.number + 1);
+
+    //     proposalState = governor.state(proposalId);
+    //     console2.log("Current Proposal State: ", uint256(proposalState));
+    //     assertEq(uint256(proposalState), 5);
+    //     assert(proposalState == IGovernor.ProposalState.Queued);
+
+    //     console2.log("Executing...");
+
+    //     targets[0] = address(rogueStaking);
+    //     values[0] = 0;
+    //     calldatas[0] = encodedFunctionCall;
+    //     governor.execute(targets, values, calldatas, descriptionHash);
+
+    // }
 
     function mkaddr(string memory name) public returns (address) {
         address addr = address(uint160(uint256(keccak256(abi.encodePacked(name)))));
