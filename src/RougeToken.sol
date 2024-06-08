@@ -40,6 +40,8 @@ contract RogueToken is ERC20, ERC20Permit, ERC20Votes, ReentrancyGuard, AccessCo
         dexAddress = _dexAddress;
     }
 
+    
+
     function _useNonce(address owner) internal virtual override(Nonces, Noncess) returns (uint256) {
         return super.nonces(owner);
     }

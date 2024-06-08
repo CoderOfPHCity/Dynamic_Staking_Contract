@@ -11,13 +11,11 @@ import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Vo
 import {TimelockController} from "@openzeppelin/contracts/governance/TimelockController.sol";
 import {IVotes} from "@openzeppelin/contracts/governance/utils/IVotes.sol";
 
-
 contract DeployScript is Script {
     uint256 internal constant QUORUM_PERCENTAGE = 4; // Need 4% of voters to pass
     uint256 internal constant MIN_DELAY = 3600; // 1 hour - after a vote passes, you have 1 hour before you can enact
     uint256 internal constant VOTING_PERIOD = 5; // blocks
     uint256 internal constant VOTING_DELAY = 1; // 1 Block - How many blocks till a proposal vote becomes active
-
 
     Governance internal governor;
     RogueToken internal governanceToken;
